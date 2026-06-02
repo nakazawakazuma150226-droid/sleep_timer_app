@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>睡眠タイマー</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="睡眠タイマー">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 2rem 1rem;
+  }
+  .app { width: 100%; max-width: 420px; }
+
+  .header { text-align: center; margin-bottom: 2rem; }
+  .header h1 { font-size: 22px; font-weight: 500; color: #e6edf3; }
+  .header p { font-size: 13px; color: #7d8590; margin-top: 4px; }
+  .top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .icon-btn {
+    width: 38px; height: 38px;
+    border: 1px solid #30363d;
+    border-radius: 50%;
+    background: #0d1117;
+    color: #e6edf3;
+    font-size: 18px;
+    cursor: pointer;
+  }
+  .icon-btn:hover { border-color: #58a6ff; background: #1c2128; }
+
+  .phase { display: none; flex-direction: column; gap: 1rem; }
+  .phase.active { display: flex; }
+
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 1.25rem;
+  }
+  .card-title { font-size: 12px; color: #7d8590; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.75rem; }
+
+  .slider-row { display: flex; align-items: center; gap: 10px; }
+  .slider-row input[type=range] {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: #30363d;
+    outline: none;
+  }
+  .slider-row input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #3fb950;
+    cursor: pointer;
+  }
+  .slider-val { font-size: 14px; font-weight: 500; min-width: 40px; text-align: right; }
+  .last-duration {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+  }
+  .last-duration:hover { border-color: #58a6ff; background: #1c2128; }
+  .last-duration:disabled { cursor: default; opacity: 0.55; }
+  .last-duration .label { font-size: 11px; color: #7d8590; margin-bottom: 3px; }
+  .last-duration .value { font-size: 26px; font-weight: 500; }
+  .last-duration .note { font-size: 11px; color: #7d8590; margin-top: 3px; }
+  .timer-entry {
+    text-align: center;
+    font-size: 50px;
+    font-weight: 600;
+    letter-spacing: 0;
+    margin: 6px 0 18px;
+    color: #f0efff;
+  }
+  .timer-entry .unit { font-size: 22px; color: #c7c5d8; margin: 0 4px; }
+  .keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .key-btn {
+    aspect-ratio: 1;
+    border: none;
+    border-radius: 50%;
+    background: #252630;
+    color: #f0efff;
+    font-size: 30px;
+    cursor: pointer;
+  }
+  .key-btn:active { background: #343541; transform: scale(0.98); }
+  .key-btn.icon { font-size: 24px; }
+
+  .start-btn {
+    background: #238636;
+    border: none;
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 500;
+    color: white;
+    cursor: pointer;
+    width: 100%;
+    transition: background 0.15s;
+  }
+  .start-btn:hover { background: #2ea043; }
+  .start-btn:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+
+  /* Detection phase */
+  .detect-center { text-align: center; padding: 1rem 0; }
+  .pulse-ring {
+    width: 90px; height: 90px;
+    border-radius: 50%;
+    border: 2px solid #30363d;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 1rem;
+    font-size: 36px;
+    transition: border-color 0.3s;
+  }
+  .pulse-ring.active {
+    border-color: #3fb950;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(63,185,80,0.3); }
+    50% { box-shadow: 0 0 0 12px rgba(63,185,80,0); }
+  }
+  .detect-status { font-size: 15px; color: #e6edf3; }
+  .detect-sub { font-size: 13px; color: #7d8590; margin-top: 4px; }
+
+  .sensor-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #21262d; }
+  .sensor-row:last-child { border-bottom: none; }
+  .sensor-name { font-size: 13px; color: #7d8590; display: flex; align-items: center; gap: 6px; }
+  .sensor-bars { display: flex; align-items: flex-end; gap: 3px; height: 24px; }
+  .bar { width: 4px; border-radius: 2px; background: #30363d; transition: height 0.2s, background 0.2s; }
+
+  .progress-label { font-size: 12px; color: #7d8590; margin-bottom: 6px; }
+  .progress-track { height: 4px; background: #21262d; border-radius: 2px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #3fb950; transition: width 1s linear; border-radius: 2px; width: 0%; }
+
+  .log-box {
+    font-size: 11px; color: #7d8590;
+    background: #0d1117;
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 3px;
+    min-height: 60px;
+    font-family: monospace;
+  }
+
+  /* Timer phase */
+  .timer-center { text-align: center; padding: 0.5rem 0; }
+  .countdown-wrap { position: relative; width: 140px; height: 140px; margin: 0 auto; }
+  .countdown-wrap svg { transform: rotate(-90deg); }
+  .time-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; }
+  .time-big { font-size: 30px; font-weight: 500; }
+  .time-lbl { font-size: 11px; color: #7d8590; margin-top: 2px; }
+
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card { background: #0d1117; border: 1px solid #21262d; border-radius: 10px; padding: 12px; text-align: center; }
+  .stat-val { font-size: 22px; font-weight: 500; }
+  .stat-lbl { font-size: 11px; color: #7d8590; margin-top: 2px; }
+
+  /* Alarm phase */
+  .alarm-card {
+    background: #1a2e1a;
+    border: 1px solid #3fb950;
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+  }
+  .alarm-icon { font-size: 56px; margin-bottom: 12px; }
+  .alarm-title { font-size: 24px; font-weight: 500; color: #3fb950; }
+  .alarm-sub { font-size: 14px; color: #7d8590; margin-top: 6px; }
+  .dismiss-btn {
+    background: #238636; border: none; border-radius: 10px;
+    padding: 12px 40px; font-size: 16px; font-weight: 500; color: white;
+    cursor: pointer; margin-top: 1.5rem;
+  }
+
+  .cancel-btn {
+    background: none; border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px; font-size: 13px; color: #7d8590; cursor: pointer; width: 100%;
+  }
+  .cancel-btn:hover { background: #161b22; }
+
+  .info-box {
+    background: #1c2128; border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px 12px; font-size: 12px; color: #7d8590;
+    display: flex; gap: 8px;
+  }
+  .detail-list { display: flex; flex-direction: column; gap: 7px; font-size: 12px; color: #7d8590; }
+  .detail-list div { display: flex; gap: 7px; line-height: 1.45; }
+  .option-row { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; color: #e6edf3; }
+  .option-row input { margin-top: 2px; accent-color: #3fb950; }
+  .option-note { display: block; color: #7d8590; font-size: 11px; margin-top: 2px; line-height: 1.45; }
+  .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .small-btn {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 13px;
+    color: #e6edf3;
+    cursor: pointer;
+  }
+  .small-btn:hover { border-color: #58a6ff; background: #1c2128; }
+  .setting-select {
+    width: 100%;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    color: #e6edf3;
+    font-size: 15px;
+    padding: 11px 10px;
+    margin-bottom: 10px;
+  }
+  .onboard-hero { min-height: 56vh; display: flex; flex-direction: column; justify-content: center; text-align: center; gap: 18px; }
+  .onboard-icon { font-size: 54px; }
+  .onboard-title { font-size: 30px; font-weight: 600; }
+  .onboard-lead { font-size: 24px; line-height: 1.45; color: #f0efff; }
+  .privacy-note { font-size: 12px; color: #7d8590; line-height: 1.6; text-align: center; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="top-row">
+      <div style="text-align:left">
+        <h1>🌙 睡眠タイマー</h1>
+        <p>眠りについたら自動でタイマーが始まります</p>
+      </div>
+      <button class="icon-btn" type="button" onclick="showSettings()" aria-label="設定">⚙</button>
+    </div>
+  </div>
+
+  <!-- Onboarding -->
+  <div class="phase" id="phase-onboarding">
+    <div class="onboard-hero">
+      <div class="onboard-icon">🌙</div>
+      <div class="onboard-title">睡眠タイマー</div>
+      <div class="onboard-lead">眠りについたら<br>タイマーが始まります</div>
+      <div class="privacy-note">精度のためマイク使用を推奨します。<br>録音・保存・送信は行いません。</div>
+    </div>
+    <button class="start-btn" type="button" onclick="completeOnboarding()">はじめる</button>
+    <button class="cancel-btn" type="button" onclick="showSettings()">使う前に確認</button>
+  </div>
+
+  <!-- Setup -->
+  <div class="phase active" id="phase-setup">
+    <div class="card">
+      <div class="card-title">起きるまでの時間</div>
+      <button class="last-duration" id="last-duration-btn" type="button" onclick="applyLastDuration()">
+        <div class="label">前回の設定</div>
+        <div class="value" id="duration-summary">30分</div>
+        <div class="note" id="last-duration-note">タップすると反映します</div>
+      </button>
+      <div class="timer-entry" id="duration-entry"><span>0</span><span class="unit">時間</span><span>00</span><span class="unit">分</span></div>
+      <div class="keypad" aria-label="タイマー時間入力">
+        <button class="key-btn" type="button" onclick="pressDurationKey('1')">1</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('2')">2</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('3')">3</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('4')">4</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('5')">5</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('6')">6</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('7')">7</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('8')">8</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('9')">9</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('00')">00</button>
+        <button class="key-btn" type="button" onclick="pressDurationKey('0')">0</button>
+        <button class="key-btn icon" type="button" onclick="backspaceDuration()">⌫</button>
+      </div>
+    </div>
+
+    <button class="start-btn" id="start-btn" onclick="startDetection()" disabled>
+      時間を選んで開始
+    </button>
+  </div>
+
+  <!-- Settings -->
+  <div class="phase" id="phase-settings">
+    <div class="card">
+      <div class="card-title">検知感度</div>
+      <div class="slider-row">
+        <span style="font-size:12px;color:#7d8590">誤検知しにくい</span>
+        <input type="range" id="sens-slider" min="1" max="5" value="3" step="1"
+          oninput="document.getElementById('sens-out').textContent=this.value">
+        <span style="font-size:12px;color:#7d8590">早く検知</span>
+        <span class="slider-val" id="sens-out">3</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">設置場所</div>
+      <label class="option-row">
+        <input type="radio" name="placement-mode" value="bedside" checked>
+        <span>枕元・ベッド脇
+          <span class="option-note">音を優先して検知します。端末に体の動きが伝わりにくい置き方です。</span>
+        </span>
+      </label>
+      <label class="option-row" style="margin-top:10px">
+        <input type="radio" name="placement-mode" value="bed">
+        <span>ベッド上
+          <span class="option-note">音と動きを組み合わせて検知します。端末が体の動きを拾える場所に置いてください。</span>
+        </span>
+      </label>
+    </div>
+    <div class="card">
+      <div class="card-title">保険設定</div>
+      <label class="option-row">
+        <input type="checkbox" id="fallback-check" checked>
+        <span>30分たっても検知できない時はタイマーを開始
+          <span class="option-note">寝落ち後に動きや環境音で検知が進まない場合の保険です。</span>
+        </span>
+      </label>
+    </div>
+    <div class="card">
+      <div class="card-title">アラーム確認</div>
+      <select class="setting-select" id="alarm-tone" onchange="saveAlarmTone()">
+        <option value="gentle">やさしい</option>
+        <option value="gradual">だんだん強く</option>
+        <option value="chime">チャイム</option>
+        <option value="bell">ベル</option>
+        <option value="standard">標準</option>
+        <option value="digital">デジタル</option>
+        <option value="deep">低音</option>
+        <option value="strong">強め</option>
+      </select>
+      <div class="action-row">
+        <button class="small-btn" type="button" onclick="testAlarm()">音を試す</button>
+        <button class="small-btn" type="button" onclick="testVibration()">バイブを試す</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">使い方</div>
+      <div class="detail-list">
+        <div><span>•</span><span>枕元・ベッド脇では音を優先し、ベッド上では動きも使います</span></div>
+        <div><span>•</span><span>布団の中に入れず、充電しながら使うのがおすすめです</span></div>
+        <div><span>•</span><span>マイクが使えない場合、検知精度は大きく下がります</span></div>
+        <div><span>•</span><span>マイクは音量だけを見ます。録音・保存・送信は行いません</span></div>
+      </div>
+    </div>
+    <div class="info-box">
+      ⚠️ 開始するとマイクと動きセンサーの許可が必要です。Web版では画面をオンのままにしてください。
+    </div>
+    <button class="cancel-btn" type="button" onclick="showPhase('phase-setup')">戻る</button>
+  </div>
+
+  <!-- Detecting -->
+  <div class="phase" id="phase-detect">
+    <div class="card detect-center">
+      <div class="pulse-ring active" id="pulse-ring">🌙</div>
+      <div class="detect-status" id="detect-status">センサー起動中...</div>
+      <div class="detect-sub" id="detect-sub">静かになったらタイマーが始まります</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">センサー状態</div>
+      <div class="sensor-row">
+        <span class="sensor-name">📱 動き</span>
+        <div class="sensor-bars" id="motion-bars">
+          <div class="bar" style="height:6px" id="mb0"></div>
+          <div class="bar" style="height:10px" id="mb1"></div>
+          <div class="bar" style="height:8px" id="mb2"></div>
+          <div class="bar" style="height:14px" id="mb3"></div>
+          <div class="bar" style="height:6px" id="mb4"></div>
+        </div>
+      </div>
+      <div class="sensor-row">
+        <span class="sensor-name">🎤 音量</span>
+        <div class="sensor-bars" id="audio-bars">
+          <div class="bar" style="height:6px" id="ab0"></div>
+          <div class="bar" style="height:10px" id="ab1"></div>
+          <div class="bar" style="height:8px" id="ab2"></div>
+          <div class="bar" style="height:14px" id="ab3"></div>
+          <div class="bar" style="height:6px" id="ab4"></div>
+        </div>
+      </div>
+      <div class="sensor-row">
+        <span class="sensor-name">検知モード</span>
+        <span id="detect-mode" style="font-size:12px;color:#7d8590">確認中...</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="progress-label">静止確認まで <span id="still-rem">—</span></div>
+      <div class="progress-track"><div class="progress-fill" id="still-fill"></div></div>
+    </div>
+
+    <div class="log-box" id="log-box" style="display:none"><span style="color:#484f58">— ログ —</span></div>
+
+    <button class="cancel-btn" onclick="cancelAll()">✕ キャンセル</button>
+  </div>
+
+  <!-- Timer -->
+  <div class="phase" id="phase-timer">
+    <div class="card" style="text-align:center">
+      <div class="card-title">タイマー作動中</div>
+      <div class="countdown-wrap">
+        <svg width="140" height="140">
+          <circle cx="70" cy="70" r="60" fill="none" stroke="#21262d" stroke-width="6"/>
+          <circle cx="70" cy="70" r="60" fill="none" stroke="#3fb950" stroke-width="6"
+            stroke-dasharray="376.99" stroke-dashoffset="0" id="timer-arc"
+            stroke-linecap="round"/>
+        </svg>
+        <div class="time-overlay">
+          <div class="time-big" id="timer-disp">—</div>
+          <div class="time-lbl">残り</div>
+        </div>
+      </div>
+      <div style="font-size:13px;color:#7d8590;margin-top:8px" id="sleep-time-lbl">眠りについた時刻: —</div>
+      <div style="font-size:13px;color:#7d8590;margin-top:4px" id="alarm-time-lbl">アラーム予定: —</div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-val" id="stat-dur">—</div>
+        <div class="stat-lbl">設定時間</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-detect">—</div>
+        <div class="stat-lbl">検知時間</div>
+      </div>
+    </div>
+    <button class="cancel-btn" onclick="cancelAll()">✕ キャンセル・起床</button>
+  </div>
+
+  <!-- Alarm -->
+  <div class="phase" id="phase-alarm">
+    <div class="alarm-card">
+      <div class="alarm-icon">⏰</div>
+      <div class="alarm-title">起きる時間です！</div>
+      <div class="alarm-sub" id="alarm-msg">よく眠れましたか？</div>
+      <div class="alarm-sub" id="alarm-elapsed-msg" style="margin-top:8px">アラーム開始から 0分</div>
+      <div class="alarm-sub" id="alarm-detect-msg">寝るまで: —</div>
+      <button class="dismiss-btn" onclick="dismissAlarm()">止める</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let selMins = 30;
+let detectStart, sleepStart, timerEnd, alarmStart;
+let detectIv, timerIv, alarmElapsedIv;
+let audioCtx, analyser, micStream;
+let stillSecs = 0, lastMotionTime = Date.now();
+let sensitivity = 3;
+let logs = [];
+let wakeLock = null;
+let audioAvailable = false;
+let motionSupported = false;
+let motionAvailable = false;
+let lastAccel = null;
+let motionLevel = 0;
+let alarmIv = null;
+let alarmAudioCtx = null;
+let alarmTestTimeout = null;
+let alarmTone = 'standard';
+let alarmLoopCount = 0;
+let durationDigits = '';
+let lastDurationMins = 30;
+
+// 改善用の状態
+let calibrating = false;
+let calibrationSecs = 0;
+let calibrationSamples = [];
+let motionCalibrationSamples = [];
+let baselineAudio = 0;
+let baselineMotion = 0;
+let audioHistory = [];  // 直近30秒の音量平均化用
+let motionHistory = []; // 動きも平均化
+let isAsleep = false;   // 一度睡眠判定したら状態を保持
+let asleepNoiseCount = 0; // 睡眠中の一時的な音カウント
+let sleepScore = 0;
+let sleepStage = 'calibrating';
+
+const CALIBRATION_DURATION = 20; // 環境音計測時間（秒）
+const AUDIO_AVG_WINDOW = 30;     // 音量平均化の窓（秒）
+const MIN_DETECTION_TIME = 180;  // 最低検知時間（秒）— これ未満では睡眠と判定しない
+const FALLBACK_DETECTION_TIME = 30 * 60; // 検知できない時の保険（秒）
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) {
+    log('画面ロック維持: 非対応');
+    return;
+  }
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    log('画面ロック維持: ON');
+    wakeLock.addEventListener('release', () => {
+      log('画面ロック: 解除された');
+    });
+    document.addEventListener('visibilitychange', async () => {
+      if (wakeLock !== null && document.visibilityState === 'visible') {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+          log('画面ロック維持: 再取得');
+        } catch(e) {}
+      }
+    });
+  } catch(e) {
+    log('画面ロック維持: 失敗');
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release();
+    wakeLock = null;
+  }
+}
+
+function log(msg) {
+  const t = new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  logs.unshift(t + ' ' + msg);
+  if(logs.length > 5) logs.pop();
+  document.getElementById('log-box').innerHTML = logs.map(l=>`<span>${l}</span>`).join('');
+}
+
+function detectionModeLabel() {
+  if (audioAvailable && motionAvailable) return '音 + 動きで検知中';
+  if (audioAvailable && motionSupported) return '音 + 動き待機中';
+  if (audioAvailable) return '音のみで検知中';
+  if (motionAvailable) return '動きのみで検知中';
+  if (motionSupported) return '動き待機中';
+  return '簡易検知中';
+}
+
+function updateDetectionMode() {
+  const el = document.getElementById('detect-mode');
+  if (el) el.textContent = detectionModeLabel();
+}
+
+function formatDuration(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h > 0 && m > 0) return `${h}時間${m}分`;
+  if (h > 0) return `${h}時間`;
+  return `${m}分`;
+}
+
+function clampDuration(mins) {
+  return Math.max(1, Math.min(180, mins));
+}
+
+function digitsFromMinutes(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return String(h * 100 + m);
+}
+
+function minutesFromDigits(digits) {
+  const n = parseInt(digits || '0', 10);
+  const rawHours = Math.floor(n / 100);
+  const rawMinutes = n % 100;
+  return rawHours * 60 + rawMinutes;
+}
+
+function renderDuration(save) {
+  const rawMins = minutesFromDigits(durationDigits);
+  selMins = rawMins > 0 ? clampDuration(rawMins) : 0;
+  const displayMins = selMins || 0;
+  const hours = Math.floor(displayMins / 60);
+  const minutes = displayMins % 60;
+  document.getElementById('duration-entry').innerHTML =
+    `<span>${hours}</span><span class="unit">時間</span><span>${String(minutes).padStart(2, '0')}</span><span class="unit">分</span>`;
+  if (save && selMins > 0) {
+    localStorage.setItem('sleepTimerLastDuration', String(selMins));
+    setLastDuration(selMins);
+  }
+  enableStart();
+}
+
+function setDuration(mins, save) {
+  selMins = clampDuration(mins);
+  durationDigits = digitsFromMinutes(selMins).slice(0, 4);
+  renderDuration(save);
+}
+
+function pressDurationKey(key) {
+  durationDigits = (durationDigits + key).replace(/^0+(?=\d)/, '').slice(0, 4);
+  renderDuration(true);
+}
+
+function backspaceDuration() {
+  durationDigits = durationDigits.slice(0, -1);
+  renderDuration(true);
+}
+
+function setLastDuration(mins) {
+  lastDurationMins = clampDuration(mins);
+  document.getElementById('duration-summary').textContent = formatDuration(lastDurationMins);
+  document.getElementById('last-duration-note').textContent = 'タップすると反映します';
+  document.getElementById('last-duration-btn').disabled = false;
+}
+
+function applyLastDuration() {
+  setDuration(lastDurationMins, false);
+  document.getElementById('last-duration-note').textContent = '反映しました';
+}
+
+function enableStart() {
+  const btn = document.getElementById('start-btn');
+  btn.disabled = selMins < 1;
+  btn.textContent = selMins < 1 ? '時間を入力して開始' : formatDuration(selMins) + 'で開始';
+}
+
+function showPhase(id) {
+  document.querySelectorAll('.phase').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function showSettings() {
+  const settings = document.getElementById('phase-settings');
+  showPhase(settings.classList.contains('active') ? 'phase-setup' : 'phase-settings');
+}
+
+function completeOnboarding() {
+  showPhase('phase-setup');
+}
+
+function isFallbackEnabled() {
+  const el = document.getElementById('fallback-check');
+  return !el || el.checked;
+}
+
+function saveAlarmTone() {
+  const el = document.getElementById('alarm-tone');
+  alarmTone = el ? el.value : 'standard';
+  localStorage.setItem('sleepTimerAlarmTone', alarmTone);
+}
+
+function initAlarmTone() {
+  const saved = localStorage.getItem('sleepTimerAlarmTone') || 'standard';
+  const tones = ['gentle', 'gradual', 'chime', 'bell', 'standard', 'digital', 'deep', 'strong'];
+  alarmTone = tones.includes(saved) ? saved : 'standard';
+  const el = document.getElementById('alarm-tone');
+  if (el) el.value = alarmTone;
+}
+
+function getPlacementMode() {
+  const selected = document.querySelector('input[name="placement-mode"]:checked');
+  return selected ? selected.value : 'bedside';
+}
+
+async function startDetection() {
+  localStorage.setItem('sleepTimerLastDuration', String(selMins));
+  sensitivity = parseInt(document.getElementById('sens-slider').value);
+  detectStart = Date.now();
+  lastMotionTime = Date.now();
+  audioAvailable = false;
+  motionSupported = false;
+  motionAvailable = false;
+  lastAccel = null;
+  motionLevel = 0;
+  showPhase('phase-detect');
+  log('センサー起動中...');
+  updateDetectionMode();
+  await requestWakeLock();
+
+  // Microphone
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    micStream = stream;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    audioAvailable = true;
+    log('マイク: 許可済み');
+  } catch(e) {
+    log(getPlacementMode() === 'bed' ? 'マイク: 不可 (動きのみ使用)' : 'マイク: 不可 (保険開始のみ)');
+  }
+  updateDetectionMode();
+
+  // Motion
+  if (window.DeviceMotionEvent) {
+    motionSupported = true;
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      try {
+        const permission = await DeviceMotionEvent.requestPermission();
+        if (permission !== 'granted') {
+          motionSupported = false;
+          log('動きセンサー: 許可なし');
+          updateDetectionMode();
+          startMonitor();
+          return;
+        }
+      } catch(e) {
+        motionSupported = false;
+        log('動きセンサー: 許可失敗');
+        updateDetectionMode();
+        startMonitor();
+        return;
+      }
+    }
+    window.addEventListener('devicemotion', onMotion);
+    log('動きセンサー: 待機中');
+  } else {
+    log('動きセンサー: 未対応 (マイクのみ使用)');
+  }
+  updateDetectionMode();
+
+  startMonitor();
+}
+
+function onMotion(e) {
+  const a = e.accelerationIncludingGravity || e.acceleration;
+  if (!a) return;
+  const current = { x: a.x || 0, y: a.y || 0, z: a.z || 0 };
+  if (!lastAccel) {
+    lastAccel = current;
+    return;
+  }
+
+  const delta = Math.sqrt(
+    ((current.x - lastAccel.x) ** 2) +
+    ((current.y - lastAccel.y) ** 2) +
+    ((current.z - lastAccel.z) ** 2)
+  );
+  lastAccel = current;
+  motionAvailable = true;
+
+  motionHistory.push(delta);
+  if (motionHistory.length > 5) motionHistory.shift();
+  motionLevel = motionHistory.reduce((s,v) => s+v, 0) / motionHistory.length;
+  if (calibrating) motionCalibrationSamples.push(delta);
+
+  const threshold = getMotionThreshold();
+  if (motionLevel > threshold) lastMotionTime = Date.now();
+  updateDetectionMode();
+}
+
+function getAudioLevel() {
+  if (!analyser) return 0;
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteTimeDomainData(data);
+  const sumSquares = data.reduce((sum, v) => {
+    const centered = (v - 128) / 128;
+    return sum + centered * centered;
+  }, 0);
+  return Math.sqrt(sumSquares / data.length) * 100;
+}
+
+function getQuietAudioThreshold() {
+  const quietRatio = [0, 1.05, 0.95, 0.85, 0.75, 0.65][sensitivity] || 0.85;
+  const absoluteQuiet = 1.2 + (6 - sensitivity) * 0.55;
+  return Math.max(absoluteQuiet, baselineAudio * quietRatio);
+}
+
+function getMotionThreshold() {
+  const base = Math.max(0.12, baselineMotion * (1.8 - sensitivity * 0.14));
+  const absolute = 1.15 - sensitivity * 0.14;
+  return Math.max(base, absolute);
+}
+
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a,b) => a-b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function updateSleepScore(signals) {
+  const { hasAudio, hasMotion, isQuiet, isMotionless, loudNoise, bigMotion, mode } = signals;
+  let possible = 0;
+  let positive = 0;
+
+  if (hasAudio) {
+    const weight = mode === 'bed' ? 0.65 : 1;
+    possible += weight;
+    if (isQuiet) positive += weight;
+  }
+
+  if (hasMotion) {
+    const weight = mode === 'bed' ? 0.85 : 0.25;
+    possible += weight;
+    if (isMotionless) positive += weight;
+  }
+
+  let delta = -0.5;
+  if (possible > 0) {
+    const confidence = positive / possible;
+    if (confidence >= 0.9) delta = 1;
+    else if (confidence >= 0.55) delta = 0.35;
+    else delta = -1.2;
+  }
+
+  if (loudNoise) delta -= 2.5;
+  if (bigMotion) delta -= mode === 'bed' ? 5 : 1.5;
+
+  const maxScore = MIN_DETECTION_TIME;
+  sleepScore = Math.max(0, Math.min(maxScore, sleepScore + delta));
+  return sleepScore;
+}
+
+function sleepStageLabel() {
+  if (sleepScore >= MIN_DETECTION_TIME * 0.66) return '入眠候補';
+  if (sleepScore >= MIN_DETECTION_TIME * 0.33) return '落ち着き中';
+  return '睡眠検知中';
+}
+
+function updateBars(prefix, value, max) {
+  const ratios = [0.3, 0.5, 0.7, 0.9, 1.0];
+  const active = value > max * 0.15;
+  for (let i = 0; i < 5; i++) {
+    const el = document.getElementById(prefix + i);
+    const h = Math.max(3, Math.min(22, (value / max) * 22 * ratios[i] * 2));
+    el.style.height = Math.round(h) + 'px';
+    el.style.background = active ? '#f85149' : '#3fb950';
+  }
+}
+
+function startMonitor() {
+  // リセット
+  stillSecs = 0;
+  audioHistory = [];
+  motionHistory = [];
+  calibrationSamples = [];
+  motionCalibrationSamples = [];
+  calibrating = true;
+  calibrationSecs = 0;
+  isAsleep = false;
+  asleepNoiseCount = 0;
+  sleepScore = 0;
+  sleepStage = 'calibrating';
+
+  log('🎤 環境音と揺れを計測中... (' + CALIBRATION_DURATION + '秒)');
+
+  detectIv = setInterval(() => {
+    const audio = getAudioLevel();
+    const motionAge = (Date.now() - lastMotionTime) / 1000;
+
+    // バーの表示
+    const motionVal = motionAvailable ? Math.min(30, motionLevel * 18) : Math.max(0, 30 - motionAge * 2);
+    updateBars('mb', motionVal, 30);
+    updateBars('ab', audio, 12);
+    updateDetectionMode();
+
+    // === キャリブレーションフェーズ ===
+    if (calibrating) {
+      calibrationSamples.push(audio);
+      calibrationSecs++;
+
+      const pct = (calibrationSecs / CALIBRATION_DURATION) * 100;
+      document.getElementById('still-fill').style.width = Math.round(pct) + '%';
+      document.getElementById('still-rem').textContent = (CALIBRATION_DURATION - calibrationSecs) + '秒（環境学習中）';
+      document.getElementById('detect-status').textContent = '🎤 環境を学習中...';
+      document.getElementById('detect-sub').textContent = 'そのまま静かにしてください';
+
+      if (calibrationSecs >= CALIBRATION_DURATION) {
+        // 中央値を使い、瞬間的な音や揺れの外れ値を避ける
+        baselineAudio = median(calibrationSamples);
+        baselineMotion = median(motionCalibrationSamples);
+        calibrating = false;
+        log('📊 環境音基準: ' + Math.round(baselineAudio));
+        log('📊 揺れ基準: ' + baselineMotion.toFixed(2));
+        log('💤 睡眠検知を開始');
+        document.getElementById('detect-sub').textContent = '静かになったらタイマーが始まります';
+      }
+      return;
+    }
+
+    // === 検知フェーズ ===
+
+    // 直近の音量を履歴に追加（平均化）
+    audioHistory.push(audio);
+    if (audioHistory.length > AUDIO_AVG_WINDOW) audioHistory.shift();
+    const avgAudio = audioHistory.reduce((s,v) => s+v, 0) / audioHistory.length;
+
+    // 環境音より十分静かな状態を判定（静かな部屋では絶対しきい値も併用）
+    const audioThresh = getQuietAudioThreshold();
+    const placementMode = getPlacementMode();
+
+    // 利用できるセンサーだけを判定に使い、未取得センサーは睡眠スコアを増やさない
+    const hasAudio = audioAvailable;
+    const hasMotion = motionAvailable;
+    const hasMotionForScore = hasMotion && (placementMode === 'bed' || hasAudio);
+    const isQuiet = hasAudio && avgAudio < audioThresh;
+    const motionThresh = getMotionThreshold();
+    const isMotionless = hasMotion && motionAge > 10 && motionLevel < motionThresh;
+    const loudNoise = hasAudio && (audio > audioThresh * 2.5 || avgAudio > audioThresh * 1.8);
+    const bigMotion = hasMotion && motionLevel > motionThresh * 2.2;
+    const score = updateSleepScore({
+      hasAudio,
+      hasMotion: hasMotionForScore,
+      isQuiet,
+      isMotionless,
+      loudNoise,
+      bigMotion,
+      mode: placementMode
+    });
+    sleepStage = sleepStageLabel();
+
+    // === 段階的判定 ===
+    if (!isAsleep) {
+      stillSecs = Math.floor(score);
+
+      // スコアが十分に積み上がったら睡眠判定
+      if (score >= MIN_DETECTION_TIME) {
+        isAsleep = true;
+        log('✅ 睡眠開始と判定！');
+        startTimer();
+        return;
+      }
+
+      const elapsed = Math.round((Date.now() - detectStart) / 1000);
+      if (isFallbackEnabled() && elapsed >= FALLBACK_DETECTION_TIME) {
+        isAsleep = true;
+        log('⏱ 検知保険でタイマー開始');
+        startTimer();
+        return;
+      }
+
+      const pct = Math.min(100, (stillSecs / MIN_DETECTION_TIME) * 100);
+      document.getElementById('still-fill').style.width = Math.round(pct) + '%';
+      const rem = Math.max(0, MIN_DETECTION_TIME - stillSecs);
+      const m = Math.floor(rem / 60);
+      const s = rem % 60;
+      document.getElementById('still-rem').textContent = m > 0 ? `${m}分${s}秒` : `${s}秒`;
+      document.getElementById('detect-status').textContent =
+        (!hasAudio && !hasMotionForScore)
+          ? '🟡 マイクが必要です'
+          : sleepStage === '入眠候補'
+          ? `🟢 ${sleepStage}`
+          : sleepStage === '落ち着き中'
+            ? `🟡 ${sleepStage}`
+            : isQuiet
+              ? '🟡 動きを確認中...'
+              : isMotionless
+                ? '🟡 音を確認中...'
+                : '🟡 睡眠検知中...';
+      if (isFallbackEnabled()) {
+        const fallbackRem = Math.max(0, FALLBACK_DETECTION_TIME - elapsed);
+        const fm = Math.floor(fallbackRem / 60);
+        const fs = fallbackRem % 60;
+        document.getElementById('detect-sub').textContent =
+          `保険開始まで ${fm}:${String(fs).padStart(2, '0')}`;
+      }
+    }
+  }, 1000);
+}
+
+function startTimer() {
+  clearInterval(detectIv);
+  stopDetectionSensors();
+  sleepStart = new Date();
+  const detectSecs = Math.round((Date.now() - detectStart) / 1000);
+  timerEnd = new Date(sleepStart.getTime() + selMins * 60000);
+
+  document.getElementById('sleep-time-lbl').textContent = '眠りについた時刻: ' + sleepStart.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('alarm-time-lbl').textContent = 'アラーム予定: ' + timerEnd.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('stat-dur').textContent = selMins + '分';
+  document.getElementById('stat-detect').textContent = detectSecs < 60 ? detectSecs + '秒' : Math.round(detectSecs/60) + '分';
+
+  showPhase('phase-timer');
+
+  timerIv = setInterval(() => {
+    const now = Date.now();
+    const remaining = Math.max(0, timerEnd - now);
+    const total = selMins * 60000;
+    const pct = (total - remaining) / total;
+
+    const m = Math.floor(remaining / 60000);
+    const s = Math.floor((remaining % 60000) / 1000);
+    document.getElementById('timer-disp').textContent = m + ':' + String(s).padStart(2, '0');
+
+    const circ = 376.99;
+    document.getElementById('timer-arc').style.strokeDashoffset = (circ * pct).toFixed(1);
+
+    if (remaining === 0) {
+      clearInterval(timerIv);
+      triggerAlarm();
+    }
+  }, 500);
+}
+
+function triggerAlarm() {
+  stopDetectionSensors();
+  const slept = Math.round((Date.now() - sleepStart.getTime()) / 60000);
+  const detectSecs = Math.round((sleepStart.getTime() - detectStart) / 1000);
+  alarmStart = new Date();
+  document.getElementById('alarm-msg').textContent = `${slept}分間眠りました。お疲れさまです！`;
+  document.getElementById('alarm-detect-msg').textContent = `寝るまで: ${formatElapsed(detectSecs)}`;
+  updateAlarmElapsed();
+  alarmElapsedIv = setInterval(updateAlarmElapsed, 1000);
+
+  alarmLoopCount = 0;
+  playAlarmPattern();
+  alarmIv = setInterval(playAlarmPattern, getAlarmRepeatMs());
+
+  if (navigator.vibrate) navigator.vibrate([500,200,500,200,500,200,1000,300,1000]);
+
+  showPhase('phase-alarm');
+}
+
+function formatElapsed(totalSeconds) {
+  const sec = Math.max(0, Math.floor(totalSeconds));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return mm > 0 ? `${h}時間${mm}分` : `${h}時間`;
+  }
+  return m > 0 ? `${m}分${s}秒` : `${s}秒`;
+}
+
+function updateAlarmElapsed() {
+  if (!alarmStart) return;
+  const elapsed = Math.round((Date.now() - alarmStart.getTime()) / 1000);
+  document.getElementById('alarm-elapsed-msg').textContent = `アラーム開始から ${formatElapsed(elapsed)}`;
+}
+
+function playAlarmPattern() {
+  try {
+    if (!alarmAudioCtx) alarmAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ac = alarmAudioCtx;
+    const pattern = getAlarmPattern(alarmLoopCount);
+    alarmLoopCount++;
+    pattern.times.forEach((t, i) => {
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      o.type = pattern.type;
+      o.frequency.value = pattern.freqs[i % pattern.freqs.length];
+      const gain = pattern.gains ? pattern.gains[i % pattern.gains.length] : pattern.gain;
+      g.gain.setValueAtTime(gain, ac.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + pattern.len);
+      o.start(ac.currentTime + t);
+      o.stop(ac.currentTime + t + pattern.len + 0.05);
+    });
+  } catch(e) {}
+}
+
+function getAlarmPattern(loop = 0) {
+  if (alarmTone === 'gentle') {
+    return {
+      type: 'sine',
+      freqs: [440, 523, 659, 523],
+      gain: 0.18,
+      len: 0.65,
+      times: [0, 1.0, 2.1, 3.2]
+    };
+  }
+  if (alarmTone === 'gradual') {
+    const gain = Math.min(0.38, 0.12 + loop * 0.04);
+    return {
+      type: 'sine',
+      freqs: [392, 494, 587, 740],
+      gain,
+      len: 0.55,
+      times: [0, 0.9, 1.8, 2.7]
+    };
+  }
+  if (alarmTone === 'chime') {
+    return {
+      type: 'triangle',
+      freqs: [523, 659, 784, 1047],
+      gains: [0.22, 0.2, 0.18, 0.16],
+      len: 0.75,
+      times: [0, 0.65, 1.35, 2.15, 3.05]
+    };
+  }
+  if (alarmTone === 'bell') {
+    return {
+      type: 'triangle',
+      freqs: [988, 740, 988, 659],
+      gain: 0.28,
+      len: 0.5,
+      times: [0, 0.55, 1.2, 1.85, 2.7, 3.35]
+    };
+  }
+  if (alarmTone === 'strong') {
+    return {
+      type: 'square',
+      freqs: [880, 1175],
+      gain: 0.42,
+      len: 0.28,
+      times: [0, 0.35, 0.7, 1.05, 1.55, 1.9, 2.25, 2.6, 3.1, 3.45]
+    };
+  }
+  if (alarmTone === 'digital') {
+    return {
+      type: 'square',
+      freqs: [784, 784, 1047],
+      gain: 0.32,
+      len: 0.18,
+      times: [0, 0.22, 0.7, 0.92, 1.4, 1.62, 2.1, 2.32, 2.8, 3.02]
+    };
+  }
+  if (alarmTone === 'deep') {
+    return {
+      type: 'sawtooth',
+      freqs: [220, 277, 330],
+      gain: 0.3,
+      len: 0.45,
+      times: [0, 0.7, 1.4, 2.1, 2.8, 3.5]
+    };
+  }
+  return {
+    type: 'sine',
+    freqs: [880, 660],
+    gain: 0.35,
+    len: 0.4,
+    times: [0, 0.5, 1, 1.5, 2, 2.5, 3]
+  };
+}
+
+function getAlarmRepeatMs() {
+  if (alarmTone === 'strong' || alarmTone === 'digital') return 4000;
+  if (alarmTone === 'gentle' || alarmTone === 'gradual' || alarmTone === 'chime') return 5200;
+  return 4500;
+}
+
+function testAlarm() {
+  stopAlarm();
+  alarmLoopCount = 0;
+  playAlarmPattern();
+  if (navigator.vibrate) navigator.vibrate([250,120,250]);
+  alarmTestTimeout = setTimeout(stopAlarm, Math.min(getAlarmRepeatMs(), 5200));
+}
+
+function testVibration() {
+  if (navigator.vibrate) {
+    navigator.vibrate([300,150,300,150,500]);
+  } else {
+    log('バイブ: 非対応');
+  }
+}
+
+function dismissAlarm() {
+  stopAlarm();
+  cleanup();
+  if (navigator.vibrate) navigator.vibrate(0);
+  showPhase('phase-setup');
+}
+
+function stopAlarm() {
+  clearTimeout(alarmTestTimeout);
+  alarmTestTimeout = null;
+  clearInterval(alarmIv);
+  alarmIv = null;
+  clearInterval(alarmElapsedIv);
+  alarmElapsedIv = null;
+  alarmLoopCount = 0;
+  if (alarmAudioCtx) {
+    try { alarmAudioCtx.close(); } catch(e) {}
+    alarmAudioCtx = null;
+  }
+}
+
+function stopDetectionSensors() {
+  if (micStream) {
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+  if (audioCtx) {
+    try { audioCtx.close(); } catch(e){}
+    audioCtx = null;
+  }
+  analyser = null;
+  window.removeEventListener('devicemotion', onMotion);
+  audioAvailable = false;
+  motionSupported = false;
+  motionAvailable = false;
+  lastAccel = null;
+  motionLevel = 0;
+}
+
+function cleanup() {
+  clearInterval(detectIv);
+  clearInterval(timerIv);
+  stopAlarm();
+  stopDetectionSensors();
+  releaseWakeLock();
+}
+
+function cancelAll() {
+  cleanup();
+  logs = [];
+  document.getElementById('log-box').innerHTML = '<span style="color:#484f58">— ログ —</span>';
+  document.getElementById('still-fill').style.width = '0%';
+  showPhase('phase-setup');
+}
+
+function initDuration() {
+  const raw = localStorage.getItem('sleepTimerLastDuration');
+  const saved = parseInt(raw || '30', 10);
+  setLastDuration(Number.isFinite(saved) ? saved : 30);
+  durationDigits = '';
+  renderDuration(false);
+  if (!raw) {
+    document.getElementById('last-duration-note').textContent = '初期設定です。タップすると反映します';
+  }
+}
+
+initDuration();
+initAlarmTone();
+
+function initOnboarding() {
+  showPhase('phase-onboarding');
+}
+
+initOnboarding();
+
+// 既存のService Workerを削除（過去に登録されたものをクリーンアップ）
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(reg => reg.unregister());
+  });
+  if ('caches' in window) {
+    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+  }
+}
+</script>
+</body>
+</html>
