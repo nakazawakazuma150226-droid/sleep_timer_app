@@ -2,10 +2,12 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>睡眠タイマー</title>
+<meta name="description" content="眠りについたら自動でタイマーが始まる睡眠タイマー">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
+<meta name="color-scheme" content="dark">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="睡眠タイマー">
@@ -357,7 +359,7 @@
       </div>
     </div>
     <div class="info-box">
-      ⚠️ 開始するとマイクと動きセンサーの許可が必要です。Web版では画面をオンのままにしてください。
+      ⚠️ 開始するとマイクと動きセンサーの許可が必要です。録音・保存・送信は行いません。
     </div>
     <button class="cancel-btn" type="button" onclick="showPhase('phase-setup')">戻る</button>
   </div>
@@ -525,11 +527,21 @@ function releaseWakeLock() {
   }
 }
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
 function log(msg) {
   const t = new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   logs.unshift(t + ' ' + msg);
   if(logs.length > 5) logs.pop();
-  document.getElementById('log-box').innerHTML = logs.map(l=>`<span>${l}</span>`).join('');
+  document.getElementById('log-box').innerHTML = logs.map(l=>`<span>${escapeHtml(l)}</span>`).join('');
 }
 
 function detectionModeLabel() {
@@ -675,6 +687,9 @@ async function startDetection() {
 
   // Microphone
   try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('mediaDevices unavailable');
+    }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     micStream = stream;
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1218,14 +1233,10 @@ function initOnboarding() {
 
 initOnboarding();
 
-// 既存のService Workerを削除（過去に登録されたものをクリーンアップ）
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(regs => {
-    regs.forEach(reg => reg.unregister());
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch(() => {});
   });
-  if ('caches' in window) {
-    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
-  }
 }
 </script>
 </body>
