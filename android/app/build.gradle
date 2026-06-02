@@ -1,0 +1,35 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.nakazawakazuma.sleeptimer"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.nakazawakazuma.sleeptimer"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    sourceSets {
+        main {
+            assets.srcDir("$buildDir/generated/assets/web")
+        }
+    }
+}
+
+tasks.register("syncWebAssets", Copy) {
+    from(rootProject.projectDir) {
+        include "sleep_timer.html"
+        include "manifest.json"
+        include "service-worker.js"
+        include "icon-192.png"
+        include "icon-512.png"
+    }
+    into("$buildDir/generated/assets/web")
+}
+
+preBuild.dependsOn("syncWebAssets")

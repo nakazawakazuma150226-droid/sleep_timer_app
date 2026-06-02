@@ -21,7 +21,7 @@
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    padding: 2rem 1rem;
+    padding: calc(2rem + env(safe-area-inset-top, 0px)) 1rem calc(2rem + env(safe-area-inset-bottom, 0px));
   }
   .app { width: 100%; max-width: 420px; }
 
@@ -213,7 +213,7 @@
   .option-row { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; color: #e6edf3; }
   .option-row input { margin-top: 2px; accent-color: #3fb950; }
   .option-note { display: block; color: #7d8590; font-size: 11px; margin-top: 2px; line-height: 1.45; }
-  .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .action-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .small-btn {
     background: #0d1117;
     border: 1px solid #30363d;
@@ -224,16 +224,16 @@
     cursor: pointer;
   }
   .small-btn:hover { border-color: #58a6ff; background: #1c2128; }
-  .setting-select {
-    width: 100%;
+  .current-tone {
     background: #0d1117;
-    border: 1px solid #30363d;
+    border: 1px solid #21262d;
     border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
     color: #e6edf3;
-    font-size: 15px;
-    padding: 11px 10px;
     margin-bottom: 10px;
   }
+  .current-tone span { color: #7d8590; }
   .onboard-hero { min-height: 56vh; display: flex; flex-direction: column; justify-content: center; text-align: center; gap: 18px; }
   .onboard-icon { font-size: 54px; }
   .onboard-title { font-size: 30px; font-weight: 600; }
@@ -334,19 +334,10 @@
     </div>
     <div class="card">
       <div class="card-title">アラーム確認</div>
-      <select class="setting-select" id="alarm-tone" onchange="saveAlarmTone()">
-        <option value="gentle">やさしい</option>
-        <option value="gradual">だんだん強く</option>
-        <option value="chime">チャイム</option>
-        <option value="bell">ベル</option>
-        <option value="standard">標準</option>
-        <option value="digital">デジタル</option>
-        <option value="deep">低音</option>
-        <option value="strong">強め</option>
-      </select>
+      <div class="current-tone"><span>現在:</span> <strong id="current-alarm-tone">端末のアラーム音</strong></div>
       <div class="action-row">
+        <button class="small-btn" type="button" onclick="chooseSystemAlarmTone()">端末音を選ぶ</button>
         <button class="small-btn" type="button" onclick="testAlarm()">音を試す</button>
-        <button class="small-btn" type="button" onclick="testVibration()">バイブを試す</button>
       </div>
     </div>
     <div class="card">
@@ -472,10 +463,13 @@ let motionLevel = 0;
 let alarmIv = null;
 let alarmAudioCtx = null;
 let alarmTestTimeout = null;
-let alarmTone = 'standard';
+let alarmTone = 'system';
+let systemAlarmToneTitle = '端末のアラーム音';
 let alarmLoopCount = 0;
 let durationDigits = '';
 let lastDurationMins = 30;
+let nativeDetectionActive = false;
+let nativeSleepHandled = false;
 
 // 改善用の状態
 let calibrating = false;
@@ -557,6 +551,133 @@ function updateDetectionMode() {
   const el = document.getElementById('detect-mode');
   if (el) el.textContent = detectionModeLabel();
 }
+
+function nativeAlarmBridge() {
+  return window.SleepTimerAndroid && typeof window.SleepTimerAndroid.scheduleAlarm === 'function'
+    ? window.SleepTimerAndroid
+    : null;
+}
+
+function nativeDetectionBridge() {
+  return window.SleepTimerAndroid
+    && typeof window.SleepTimerAndroid.startSleepDetection === 'function'
+    && typeof window.SleepTimerAndroid.stopSleepDetection === 'function'
+    ? window.SleepTimerAndroid
+    : null;
+}
+
+function startNativeDetection() {
+  const bridge = nativeDetectionBridge();
+  if (!bridge) return false;
+  try {
+    bridge.startSleepDetection(selMins, sensitivity, getPlacementMode(), isFallbackEnabled(), alarmTone);
+    nativeDetectionActive = true;
+    nativeSleepHandled = false;
+    return true;
+  } catch(e) {
+    nativeDetectionActive = false;
+    return false;
+  }
+}
+
+function stopNativeDetection() {
+  const bridge = nativeDetectionBridge();
+  if (!bridge) return;
+  try {
+    bridge.stopSleepDetection();
+  } catch(e) {}
+  nativeDetectionActive = false;
+}
+
+function scheduleNativeAlarm() {
+  const bridge = nativeAlarmBridge();
+  if (!bridge || !timerEnd) return false;
+  try {
+    bridge.scheduleAlarm(selMins, timerEnd.getTime(), alarmTone);
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
+
+function cancelNativeAlarm() {
+  const bridge = nativeAlarmBridge();
+  if (!bridge || typeof bridge.cancelAlarm !== 'function') return;
+  try {
+    bridge.cancelAlarm();
+  } catch(e) {}
+}
+
+function testNativeAlarm() {
+  const bridge = nativeAlarmBridge();
+  if (!bridge || typeof bridge.testAlarm !== 'function') return false;
+  try {
+    bridge.testAlarm(alarmTone);
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
+
+function stopNativeAlarmSound() {
+  const bridge = nativeAlarmBridge();
+  if (!bridge || typeof bridge.stopAlarm !== 'function') return;
+  try {
+    bridge.stopAlarm();
+  } catch(e) {}
+}
+
+window.onNativeDetectionUpdate = function(payload) {
+  if (!nativeDetectionActive || !payload) return;
+  if (typeof payload === 'string') {
+    try {
+      payload = JSON.parse(payload);
+    } catch(e) {
+      return;
+    }
+  }
+
+  const audio = Number(payload.audio || 0);
+  const motion = Number(payload.motion || 0);
+  updateBars('ab', audio, 12);
+  updateBars('mb', Math.min(30, motion * 18), 30);
+  document.getElementById('detect-mode').textContent = 'Android検知中';
+
+  if (payload.phase === 'calibrating') {
+    document.getElementById('still-fill').style.width = '0%';
+    document.getElementById('still-rem').textContent = `${payload.remainingSeconds || 0}秒（環境学習中）`;
+    document.getElementById('detect-status').textContent = '🎤 環境を学習中...';
+    document.getElementById('detect-sub').textContent = payload.privacy || '端末内で音量と動きを解析しています';
+    return;
+  }
+
+  if (payload.phase === 'detecting') {
+    const pct = Math.min(100, Math.max(0, Number(payload.progress || 0) * 100));
+    const rem = Math.max(0, Number(payload.remainingSeconds || 0));
+    const m = Math.floor(rem / 60);
+    const s = rem % 60;
+    document.getElementById('still-fill').style.width = Math.round(pct) + '%';
+    document.getElementById('still-rem').textContent = m > 0 ? `${m}分${s}秒` : `${s}秒`;
+    document.getElementById('detect-status').textContent = `🟡 ${payload.message || '睡眠検知中...'}`;
+    document.getElementById('detect-sub').textContent = payload.privacy || '端末内で音量と動きを解析しています';
+    return;
+  }
+
+  if (payload.phase === 'asleep' && !nativeSleepHandled) {
+    nativeSleepHandled = true;
+    nativeDetectionActive = false;
+    log('✅ ' + (payload.message || '睡眠開始と判定！'));
+    startTimer(true);
+    return;
+  }
+
+  if (payload.phase === 'error') {
+    nativeDetectionActive = false;
+    document.getElementById('detect-status').textContent = '🟡 Web検知に切り替えます';
+    document.getElementById('detect-sub').textContent = payload.message || 'Android検知を開始できませんでした';
+    startMonitor();
+  }
+};
 
 function formatDuration(mins) {
   const h = Math.floor(mins / 60);
@@ -651,19 +772,46 @@ function isFallbackEnabled() {
   return !el || el.checked;
 }
 
-function saveAlarmTone() {
-  const el = document.getElementById('alarm-tone');
-  alarmTone = el ? el.value : 'standard';
+function initAlarmTone() {
+  systemAlarmToneTitle = localStorage.getItem('sleepTimerSystemAlarmTitle') || '端末のアラーム音';
+  alarmTone = 'system';
   localStorage.setItem('sleepTimerAlarmTone', alarmTone);
+  updateCurrentAlarmTone();
 }
 
-function initAlarmTone() {
-  const saved = localStorage.getItem('sleepTimerAlarmTone') || 'standard';
-  const tones = ['gentle', 'gradual', 'chime', 'bell', 'standard', 'digital', 'deep', 'strong'];
-  alarmTone = tones.includes(saved) ? saved : 'standard';
-  const el = document.getElementById('alarm-tone');
-  if (el) el.value = alarmTone;
+function updateCurrentAlarmTone() {
+  const el = document.getElementById('current-alarm-tone');
+  if (el) el.textContent = systemAlarmToneTitle || '端末のアラーム音';
 }
+
+function chooseSystemAlarmTone() {
+  const bridge = nativeAlarmBridge();
+  if (!bridge || typeof bridge.chooseSystemAlarmTone !== 'function') {
+    document.getElementById('detect-sub').textContent = '端末音の選択はAndroidアプリ版で使えます';
+    return;
+  }
+  try {
+    bridge.chooseSystemAlarmTone();
+  } catch(e) {}
+}
+
+window.onSystemAlarmToneSelected = function(title) {
+  alarmTone = 'system';
+  localStorage.setItem('sleepTimerAlarmTone', alarmTone);
+  if (title) {
+    systemAlarmToneTitle = title;
+    localStorage.setItem('sleepTimerSystemAlarmTitle', title);
+  }
+  updateCurrentAlarmTone();
+};
+
+window.onSystemAlarmToneTitle = function(title) {
+  if (title) {
+    systemAlarmToneTitle = title;
+    localStorage.setItem('sleepTimerSystemAlarmTitle', title);
+  }
+  updateCurrentAlarmTone();
+};
 
 function getPlacementMode() {
   const selected = document.querySelector('input[name="placement-mode"]:checked');
@@ -683,6 +831,13 @@ async function startDetection() {
   showPhase('phase-detect');
   log('センサー起動中...');
   updateDetectionMode();
+  if (startNativeDetection()) {
+    document.getElementById('detect-status').textContent = 'Android検知を開始中...';
+    document.getElementById('detect-sub').textContent = '録音・保存・送信は行わず、端末内で音量と動きを解析します';
+    document.getElementById('detect-mode').textContent = 'Android検知中';
+    return;
+  }
+
   await requestWakeLock();
 
   // Microphone
@@ -970,9 +1125,10 @@ function startMonitor() {
   }, 1000);
 }
 
-function startTimer() {
+function startTimer(nativeAlarmAlreadyScheduled = false) {
   clearInterval(detectIv);
   stopDetectionSensors();
+  if (!nativeAlarmAlreadyScheduled) stopNativeDetection();
   sleepStart = new Date();
   const detectSecs = Math.round((Date.now() - detectStart) / 1000);
   timerEnd = new Date(sleepStart.getTime() + selMins * 60000);
@@ -981,6 +1137,7 @@ function startTimer() {
   document.getElementById('alarm-time-lbl').textContent = 'アラーム予定: ' + timerEnd.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
   document.getElementById('stat-dur').textContent = selMins + '分';
   document.getElementById('stat-detect').textContent = detectSecs < 60 ? detectSecs + '秒' : Math.round(detectSecs/60) + '分';
+  const nativeScheduled = nativeAlarmAlreadyScheduled || scheduleNativeAlarm();
 
   showPhase('phase-timer');
 
@@ -999,9 +1156,25 @@ function startTimer() {
 
     if (remaining === 0) {
       clearInterval(timerIv);
-      triggerAlarm();
+      if (nativeScheduled) {
+        showNativeAlarmState();
+      } else {
+        triggerAlarm();
+      }
     }
   }, 500);
+}
+
+function showNativeAlarmState() {
+  stopDetectionSensors();
+  const slept = Math.round((Date.now() - sleepStart.getTime()) / 60000);
+  const detectSecs = Math.round((sleepStart.getTime() - detectStart) / 1000);
+  alarmStart = new Date();
+  document.getElementById('alarm-msg').textContent = `${slept}分間眠りました。Androidのアラームが鳴っています。`;
+  document.getElementById('alarm-detect-msg').textContent = `寝るまで: ${formatElapsed(detectSecs)}`;
+  updateAlarmElapsed();
+  alarmElapsedIv = setInterval(updateAlarmElapsed, 1000);
+  showPhase('phase-alarm');
 }
 
 function triggerAlarm() {
@@ -1018,7 +1191,6 @@ function triggerAlarm() {
   playAlarmPattern();
   alarmIv = setInterval(playAlarmPattern, getAlarmRepeatMs());
 
-  if (navigator.vibrate) navigator.vibrate([500,200,500,200,500,200,1000,300,1000]);
 
   showPhase('phase-alarm');
 }
@@ -1063,70 +1235,6 @@ function playAlarmPattern() {
 }
 
 function getAlarmPattern(loop = 0) {
-  if (alarmTone === 'gentle') {
-    return {
-      type: 'sine',
-      freqs: [440, 523, 659, 523],
-      gain: 0.18,
-      len: 0.65,
-      times: [0, 1.0, 2.1, 3.2]
-    };
-  }
-  if (alarmTone === 'gradual') {
-    const gain = Math.min(0.38, 0.12 + loop * 0.04);
-    return {
-      type: 'sine',
-      freqs: [392, 494, 587, 740],
-      gain,
-      len: 0.55,
-      times: [0, 0.9, 1.8, 2.7]
-    };
-  }
-  if (alarmTone === 'chime') {
-    return {
-      type: 'triangle',
-      freqs: [523, 659, 784, 1047],
-      gains: [0.22, 0.2, 0.18, 0.16],
-      len: 0.75,
-      times: [0, 0.65, 1.35, 2.15, 3.05]
-    };
-  }
-  if (alarmTone === 'bell') {
-    return {
-      type: 'triangle',
-      freqs: [988, 740, 988, 659],
-      gain: 0.28,
-      len: 0.5,
-      times: [0, 0.55, 1.2, 1.85, 2.7, 3.35]
-    };
-  }
-  if (alarmTone === 'strong') {
-    return {
-      type: 'square',
-      freqs: [880, 1175],
-      gain: 0.42,
-      len: 0.28,
-      times: [0, 0.35, 0.7, 1.05, 1.55, 1.9, 2.25, 2.6, 3.1, 3.45]
-    };
-  }
-  if (alarmTone === 'digital') {
-    return {
-      type: 'square',
-      freqs: [784, 784, 1047],
-      gain: 0.32,
-      len: 0.18,
-      times: [0, 0.22, 0.7, 0.92, 1.4, 1.62, 2.1, 2.32, 2.8, 3.02]
-    };
-  }
-  if (alarmTone === 'deep') {
-    return {
-      type: 'sawtooth',
-      freqs: [220, 277, 330],
-      gain: 0.3,
-      len: 0.45,
-      times: [0, 0.7, 1.4, 2.1, 2.8, 3.5]
-    };
-  }
   return {
     type: 'sine',
     freqs: [880, 660],
@@ -1137,35 +1245,28 @@ function getAlarmPattern(loop = 0) {
 }
 
 function getAlarmRepeatMs() {
-  if (alarmTone === 'strong' || alarmTone === 'digital') return 4000;
-  if (alarmTone === 'gentle' || alarmTone === 'gradual' || alarmTone === 'chime') return 5200;
   return 4500;
 }
 
 function testAlarm() {
   stopAlarm();
+  if (testNativeAlarm()) {
+    return;
+  }
   alarmLoopCount = 0;
   playAlarmPattern();
-  if (navigator.vibrate) navigator.vibrate([250,120,250]);
   alarmTestTimeout = setTimeout(stopAlarm, Math.min(getAlarmRepeatMs(), 5200));
 }
 
-function testVibration() {
-  if (navigator.vibrate) {
-    navigator.vibrate([300,150,300,150,500]);
-  } else {
-    log('バイブ: 非対応');
-  }
-}
-
 function dismissAlarm() {
+  cancelNativeAlarm();
   stopAlarm();
   cleanup();
-  if (navigator.vibrate) navigator.vibrate(0);
   showPhase('phase-setup');
 }
 
 function stopAlarm() {
+  stopNativeAlarmSound();
   clearTimeout(alarmTestTimeout);
   alarmTestTimeout = null;
   clearInterval(alarmIv);
@@ -1206,6 +1307,8 @@ function cleanup() {
 }
 
 function cancelAll() {
+  stopNativeDetection();
+  cancelNativeAlarm();
   cleanup();
   logs = [];
   document.getElementById('log-box').innerHTML = '<span style="color:#484f58">— ログ —</span>';
