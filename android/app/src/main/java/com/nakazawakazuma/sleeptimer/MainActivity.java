@@ -3,18 +3,23 @@ package com.nakazawakazuma.sleeptimer;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.graphics.Color;
+import android.app.AlarmManager;
+import android.app.NotificationManager;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
@@ -22,17 +27,20 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+import java.util.ArrayList;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_RECORD_AUDIO = 100;
     private static final int REQUEST_NOTIFICATIONS = 101;
-    private static final int REQUEST_ALARM_TONE = 102;
     private static final String PREFS = "sleep_timer_settings";
     private static final String KEY_ALARM_URI = "alarmUri";
     private static final String KEY_ALARM_TITLE = "alarmTitle";
+    private static final String KEY_ALARM_CHALLENGE_ENABLED = "alarmChallengeEnabled";
+    private static final String DEFAULT_ALARM_TITLE = "端末のアラーム音";
     private PermissionRequest pendingWebPermission;
     private WebView webView;
     private NativeAlarmPlayer previewAlarmPlayer;
+    private final Runnable stopPreviewAlarmRunnable = this::stopPreviewAlarm;
     private final BroadcastReceiver sleepDetectionReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -64,8 +72,7 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                    && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                     pendingWebPermission = request;
                     requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, REQUEST_RECORD_AUDIO);
                     return;
@@ -82,6 +89,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        registerSleepDetectionReceiver();
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void registerSleepDetectionReceiver() {
         IntentFilter filter = new IntentFilter(SleepDetectionService.ACTION_UPDATE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(sleepDetectionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
@@ -100,6 +112,12 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        sendPermissionStatusToWeb();
+    }
+
+    @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_RECORD_AUDIO && pendingWebPermission != null) {
@@ -111,32 +129,17 @@ public class MainActivity extends Activity {
             }
             pendingWebPermission = null;
         }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_ALARM_TONE || resultCode != RESULT_OK || data == null) return;
-
-        Uri uri = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
-        if (uri == null) return;
-        String title = ringtoneTitle(uri);
-        settings().edit()
-            .putString(KEY_ALARM_URI, uri.toString())
-            .putString(KEY_ALARM_TITLE, title)
-            .apply();
-        if (webView != null) {
-            webView.evaluateJavascript(
-                "window.onSystemAlarmToneSelected && window.onSystemAlarmToneSelected(" + jsString(title) + ")",
-                null
-            );
-        }
+        sendPermissionStatusToWeb();
     }
 
     private void grantWebPermission(PermissionRequest request) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            request.grant(request.getResources());
+        for (String resource : request.getResources()) {
+            if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+                request.grant(new String[] { PermissionRequest.RESOURCE_AUDIO_CAPTURE });
+                return;
+            }
         }
+        request.deny();
     }
 
     private void requestNotificationPermission() {
@@ -168,8 +171,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void startSleepDetection(int minutes, int sensitivity, String placementMode, boolean fallbackEnabled, String alarmTone) {
             runOnUiThread(() -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                    && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                     requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, REQUEST_RECORD_AUDIO);
                     Toast.makeText(MainActivity.this, "睡眠検知にはマイク許可が必要です", Toast.LENGTH_LONG).show();
                     sendNativeDetectionError("Android検知にはマイク許可が必要です");
@@ -183,11 +185,7 @@ public class MainActivity extends Activity {
                     .putExtra(SleepDetectionService.EXTRA_FALLBACK_ENABLED, fallbackEnabled)
                     .putExtra(SleepDetectionService.EXTRA_ALARM_TONE, alarmTone == null ? "system" : alarmTone)
                     .putExtra(SleepDetectionService.EXTRA_ALARM_URI, selectedAlarmUriFor(alarmTone));
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(intent);
-                } else {
-                    startService(intent);
-                }
+                startForegroundService(intent);
             });
         }
 
@@ -224,22 +222,41 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 stopPreviewAlarm();
                 previewAlarmPlayer = new NativeAlarmPlayer(MainActivity.this);
-                previewAlarmPlayer.start(alarmTone == null ? "system" : alarmTone, selectedAlarmUriFor(alarmTone));
-                webView.postDelayed(MainActivity.this::stopPreviewAlarm, 5200);
+                boolean started = previewAlarmPlayer.start(alarmTone == null ? "system" : alarmTone, selectedAlarmUriFor(alarmTone));
+                if (!started) {
+                    previewAlarmPlayer = null;
+                    Toast.makeText(MainActivity.this, "アラーム音を再生できませんでした", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                webView.postDelayed(stopPreviewAlarmRunnable, 5200);
             });
         }
 
         @JavascriptInterface
         public void chooseSystemAlarmTone() {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
-                    .putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
-                    .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                    .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
-                    .putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
-                    .putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, selectedAlarmUri());
-                startActivityForResult(intent, REQUEST_ALARM_TONE);
-            });
+            runOnUiThread(MainActivity.this::showAlarmToneDialog);
+        }
+
+        @JavascriptInterface
+        public void setAlarmChallengeEnabled(boolean enabled) {
+            settings().edit()
+                .putBoolean(KEY_ALARM_CHALLENGE_ENABLED, enabled)
+                .apply();
+        }
+
+        @JavascriptInterface
+        public boolean isAlarmChallengeEnabled() {
+            return settings().getBoolean(KEY_ALARM_CHALLENGE_ENABLED, false);
+        }
+
+        @JavascriptInterface
+        public String getPermissionStatus() {
+            return permissionStatusJson();
+        }
+
+        @JavascriptInterface
+        public void requestPermission(String key) {
+            runOnUiThread(() -> requestPermissionFromWeb(key));
         }
 
         @JavascriptInterface
@@ -256,6 +273,9 @@ public class MainActivity extends Activity {
     }
 
     private void stopPreviewAlarm() {
+        if (webView != null) {
+            webView.removeCallbacks(stopPreviewAlarmRunnable);
+        }
         if (previewAlarmPlayer == null) return;
         try {
             previewAlarmPlayer.stop();
@@ -265,6 +285,140 @@ public class MainActivity extends Activity {
 
     private SharedPreferences settings() {
         return getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    private void requestPermissionFromWeb(String key) {
+        if ("microphone".equals(key)) {
+            requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, REQUEST_RECORD_AUDIO);
+            return;
+        }
+        if ("notifications".equals(key)) {
+            requestNotificationPermission();
+            return;
+        }
+        if ("exactAlarm".equals(key)) {
+            openExactAlarmSettings();
+            return;
+        }
+        if ("fullScreenIntent".equals(key)) {
+            openFullScreenIntentSettings();
+        }
+    }
+
+    private void openExactAlarmSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+            .setData(Uri.parse("package:" + getPackageName()));
+        startActivity(intent);
+    }
+
+    private void openFullScreenIntentSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return;
+        Intent intent = new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+            .setData(Uri.parse("package:" + getPackageName()));
+        startActivity(intent);
+    }
+
+    private void sendPermissionStatusToWeb() {
+        if (webView == null) return;
+        webView.evaluateJavascript(
+            "window.onNativePermissionStatus && window.onNativePermissionStatus(" + permissionStatusJson() + ")",
+            null
+        );
+    }
+
+    private String permissionStatusJson() {
+        return "{"
+            + "\"native\":true,"
+            + "\"microphone\":" + hasMicrophonePermission() + ","
+            + "\"notifications\":" + hasNotificationPermission() + ","
+            + "\"exactAlarm\":" + hasExactAlarmPermission() + ","
+            + "\"fullScreenIntent\":" + hasFullScreenIntentPermission()
+            + "}";
+    }
+
+    private boolean hasMicrophonePermission() {
+        return checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean hasNotificationPermission() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+            || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean hasExactAlarmPermission() {
+        AlarmManager alarmManager = getSystemService(AlarmManager.class);
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.S
+            || alarmManager == null
+            || alarmManager.canScheduleExactAlarms();
+    }
+
+    private boolean hasFullScreenIntentPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return true;
+        NotificationManager notificationManager = getSystemService(NotificationManager.class);
+        return notificationManager == null || notificationManager.canUseFullScreenIntent();
+    }
+
+    private void showAlarmToneDialog() {
+        ArrayList<AlarmToneOption> options = alarmToneOptions();
+        if (options.isEmpty()) {
+            Toast.makeText(this, "選択できるアラーム音がありません", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        String[] labels = new String[options.size()];
+        Uri selected = selectedAlarmUri();
+        int checked = 0;
+        for (int i = 0; i < options.size(); i++) {
+            AlarmToneOption option = options.get(i);
+            labels[i] = option.title;
+            if (sameUri(option.uri, selected)) checked = i;
+        }
+
+        new AlertDialog.Builder(this)
+            .setTitle("アラーム音を選ぶ")
+            .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                saveSelectedAlarmTone(options.get(which));
+                dialog.dismiss();
+            })
+            .setNegativeButton("キャンセル", null)
+            .show();
+    }
+
+    private ArrayList<AlarmToneOption> alarmToneOptions() {
+        ArrayList<AlarmToneOption> options = new ArrayList<>();
+        Uri defaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+        if (defaultUri != null) {
+            options.add(new AlarmToneOption(DEFAULT_ALARM_TITLE, defaultUri));
+        }
+
+        RingtoneManager manager = new RingtoneManager(this);
+        manager.setType(RingtoneManager.TYPE_ALARM);
+        Cursor cursor = manager.getCursor();
+        while (cursor != null && cursor.moveToNext()) {
+            Uri uri = manager.getRingtoneUri(cursor.getPosition());
+            if (uri == null || sameUri(uri, defaultUri)) continue;
+
+            String title = cursor.getString(RingtoneManager.TITLE_COLUMN_INDEX);
+            if (title == null || title.trim().isEmpty()) {
+                title = ringtoneTitle(uri);
+            }
+            options.add(new AlarmToneOption(title, uri));
+        }
+        return options;
+    }
+
+    private void saveSelectedAlarmTone(AlarmToneOption option) {
+        settings().edit()
+            .putString(KEY_ALARM_URI, option.uri.toString())
+            .putString(KEY_ALARM_TITLE, option.title)
+            .apply();
+        if (webView != null) {
+            webView.evaluateJavascript(
+                "window.onSystemAlarmToneSelected && window.onSystemAlarmToneSelected(" + jsString(option.title) + ")",
+                null
+            );
+        }
     }
 
     private String selectedAlarmUriFor(String alarmTone) {
@@ -281,9 +435,9 @@ public class MainActivity extends Activity {
     private String ringtoneTitle(Uri uri) {
         try {
             Ringtone ringtone = RingtoneManager.getRingtone(this, uri);
-            return ringtone == null ? "端末のアラーム音" : ringtone.getTitle(this);
+            return ringtone == null ? DEFAULT_ALARM_TITLE : ringtone.getTitle(this);
         } catch (Exception e) {
-            return "端末のアラーム音";
+            return DEFAULT_ALARM_TITLE;
         }
     }
 
@@ -307,5 +461,20 @@ public class MainActivity extends Activity {
             .replace("\n", "\\n")
             .replace("\r", "\\r");
         return "\"" + escaped + "\"";
+    }
+
+    private static boolean sameUri(Uri first, Uri second) {
+        if (first == null || second == null) return false;
+        return first.toString().equals(second.toString());
+    }
+
+    private static final class AlarmToneOption {
+        final String title;
+        final Uri uri;
+
+        AlarmToneOption(String title, Uri uri) {
+            this.title = title;
+            this.uri = uri;
+        }
     }
 }

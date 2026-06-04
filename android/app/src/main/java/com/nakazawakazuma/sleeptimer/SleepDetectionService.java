@@ -15,7 +15,6 @@ import android.hardware.SensorManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
-import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -142,7 +141,7 @@ public class SleepDetectionService extends Service implements SensorEventListene
         lastAcceleration = null;
 
         startSensors();
-        startAudioMeter();
+        if (!startAudioMeter()) return;
         sendUpdate("calibrating", "環境を学習中...", 0, 0, 0, CALIBRATION_SECONDS, true);
         handler.postDelayed(monitorTick, 1000);
     }
@@ -164,12 +163,10 @@ public class SleepDetectionService extends Service implements SensorEventListene
         }
     }
 
-    private void startAudioMeter() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-            && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            sendUpdate("error", "マイク許可が必要です", 0, 0, 0, 0, false);
-            stopSelf();
-            return;
+    private boolean startAudioMeter() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            handleDetectionError("マイク許可が必要です");
+            return false;
         }
 
         int minBuffer = AudioRecord.getMinBufferSize(
@@ -178,22 +175,33 @@ public class SleepDetectionService extends Service implements SensorEventListene
             AudioFormat.ENCODING_PCM_16BIT
         );
         if (minBuffer <= 0) {
-            sendUpdate("error", "マイクを開始できませんでした", 0, 0, 0, 0, false);
-            stopSelf();
-            return;
+            handleDetectionError("マイクを開始できませんでした");
+            return false;
         }
 
         int bufferSize = Math.max(minBuffer, SAMPLE_RATE / 2);
-        audioRecord = new AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            bufferSize
-        );
+        try {
+            audioRecord = new AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize
+            );
+        } catch (Exception e) {
+            handleDetectionError("マイクを開始できませんでした");
+            return false;
+        }
+
+        if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
+            handleDetectionError("マイクを開始できませんでした");
+            return false;
+        }
+
         recording = true;
         audioThread = new Thread(() -> readAudioLoop(bufferSize), "SleepAudioMeter");
         audioThread.start();
+        return true;
     }
 
     private void readAudioLoop(int bufferSize) {
@@ -202,7 +210,10 @@ public class SleepDetectionService extends Service implements SensorEventListene
             audioRecord.startRecording();
             while (recording) {
                 int read = audioRecord.read(buffer, 0, buffer.length);
-                if (read <= 0) continue;
+                if (read < 0) {
+                    throw new IllegalStateException("AudioRecord read failed: " + read);
+                }
+                if (read == 0) continue;
                 double sumSquares = 0;
                 for (int i = 0; i < read; i++) {
                     double sample = buffer[i] / 32768.0;
@@ -212,8 +223,15 @@ public class SleepDetectionService extends Service implements SensorEventListene
                 audioLevel = Math.sqrt(sumSquares / read) * 100.0;
             }
         } catch (Exception e) {
-            sendUpdate("error", "マイク計測を継続できませんでした", 0, 0, 0, 0, false);
+            handler.post(() -> handleDetectionError("マイク計測を継続できませんでした"));
         }
+    }
+
+    private void handleDetectionError(String message) {
+        recording = false;
+        stopDetection();
+        sendUpdate("error", message, 0, 0, 0, 0, false);
+        stopSelf();
     }
 
     private void stopAudioMeter() {
@@ -413,9 +431,7 @@ public class SleepDetectionService extends Service implements SensorEventListene
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-            ? new Notification.Builder(this, CHANNEL_ID)
-            : new Notification.Builder(this);
+        Notification.Builder builder = new Notification.Builder(this, CHANNEL_ID);
         return builder
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle(title)
@@ -429,7 +445,6 @@ public class SleepDetectionService extends Service implements SensorEventListene
     }
 
     private void createChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID,
             "睡眠検知",

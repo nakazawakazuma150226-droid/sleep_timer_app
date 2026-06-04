@@ -14,30 +14,46 @@ final class NativeAlarmPlayer {
         this.context = context.getApplicationContext();
     }
 
-    void start(String tone) {
-        start(tone, null);
+    boolean start(String tone) {
+        return start(tone, null);
     }
 
-    void start(String tone, String alarmUri) {
+    boolean start(String tone, String alarmUri) {
+        stop();
+
+        Uri selectedUri = alarmUri == null || alarmUri.isEmpty() ? null : Uri.parse(alarmUri);
+        Uri defaultAlarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+        Uri notificationUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+
+        if (playUri(selectedUri)) return true;
+        if (!sameUri(selectedUri, defaultAlarmUri) && playUri(defaultAlarmUri)) return true;
+        return !sameUri(defaultAlarmUri, notificationUri) && playUri(notificationUri);
+    }
+
+    private boolean playUri(Uri uri) {
+        if (uri == null) return false;
         stop();
         try {
-            Uri uri = alarmUri == null || alarmUri.isEmpty()
-                ? RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                : Uri.parse(alarmUri);
-            if (uri == null) return;
-
-            mediaPlayer = new MediaPlayer();
-            mediaPlayer.setDataSource(context, uri);
-            mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
+            MediaPlayer player = new MediaPlayer();
+            player.setDataSource(context, uri);
+            player.setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .build());
-            mediaPlayer.setLooping(true);
-            mediaPlayer.prepare();
-            mediaPlayer.start();
+            player.setLooping(true);
+            player.prepare();
+            player.start();
+            mediaPlayer = player;
+            return true;
         } catch (Exception e) {
             stop();
+            return false;
         }
+    }
+
+    private static boolean sameUri(Uri first, Uri second) {
+        if (first == null || second == null) return false;
+        return first.toString().equals(second.toString());
     }
 
     void stop() {

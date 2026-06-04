@@ -1,6 +1,7 @@
 package com.nakazawakazuma.sleeptimer;
 
 import android.app.AlarmManager;
+import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -41,8 +42,12 @@ final class AlarmScheduler {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
                 alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, operation);
-                requestExactAlarmPermission(context);
-                Toast.makeText(context, "正確なアラーム権限を許可すると、より確実に鳴ります", Toast.LENGTH_LONG).show();
+                if (context instanceof Activity) {
+                    requestExactAlarmPermission(context);
+                    Toast.makeText(context, "正確なアラーム権限を許可すると、より確実に鳴ります", Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(context, "通常アラームとして予約しました", Toast.LENGTH_LONG).show();
+                }
                 return;
             }
 

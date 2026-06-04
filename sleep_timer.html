@@ -196,6 +196,27 @@
     padding: 12px 40px; font-size: 16px; font-weight: 500; color: white;
     cursor: pointer; margin-top: 1.5rem;
   }
+  .challenge-box {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 14px;
+    margin-top: 16px;
+    display: none;
+  }
+  .challenge-question { font-size: 22px; color: #e6edf3; font-weight: 600; }
+  .challenge-note { font-size: 12px; color: #7d8590; margin-top: 4px; }
+  .challenge-input-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 12px; }
+  .challenge-input {
+    width: 100%;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    color: #e6edf3;
+    font-size: 16px;
+    padding: 10px;
+  }
+  .challenge-feedback { color: #f85149; font-size: 12px; min-height: 18px; margin-top: 8px; }
 
   .cancel-btn {
     background: none; border: 1px solid #30363d; border-radius: 8px;
@@ -234,11 +255,52 @@
     margin-bottom: 10px;
   }
   .current-tone span { color: #7d8590; }
+  .permission-list { display: flex; flex-direction: column; gap: 8px; }
+  .permission-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .permission-name { font-size: 13px; color: #e6edf3; }
+  .permission-note { display: block; color: #7d8590; font-size: 11px; margin-top: 2px; line-height: 1.35; }
+  .permission-action {
+    border: 1px solid #30363d;
+    background: #161b22;
+    color: #e6edf3;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
+    min-width: 64px;
+    cursor: pointer;
+  }
+  .permission-action.ok {
+    border-color: #238636;
+    background: rgba(35, 134, 54, 0.16);
+    color: #7ee787;
+    cursor: default;
+  }
+  .permission-action.warn {
+    border-color: #d29922;
+    background: rgba(210, 153, 34, 0.14);
+    color: #f2cc60;
+  }
   .onboard-hero { min-height: 56vh; display: flex; flex-direction: column; justify-content: center; text-align: center; gap: 18px; }
   .onboard-icon { font-size: 54px; }
   .onboard-title { font-size: 30px; font-weight: 600; }
   .onboard-lead { font-size: 24px; line-height: 1.45; color: #f0efff; }
   .privacy-note { font-size: 12px; color: #7d8590; line-height: 1.6; text-align: center; }
+  .developer-signature {
+    font-size: 11px;
+    color: #7d8590;
+    line-height: 1.6;
+    text-align: center;
+    padding: 2px 10px 4px;
+  }
 </style>
 </head>
 <body>
@@ -247,7 +309,6 @@
     <div class="top-row">
       <div style="text-align:left">
         <h1>🌙 睡眠タイマー</h1>
-        <p>眠りについたら自動でタイマーが始まります</p>
       </div>
       <button class="icon-btn" type="button" onclick="showSettings()" aria-label="設定">⚙</button>
     </div>
@@ -299,6 +360,39 @@
   <!-- Settings -->
   <div class="phase" id="phase-settings">
     <div class="card">
+      <div class="card-title">権限チェック</div>
+      <div class="permission-list">
+        <div class="permission-row">
+          <div>
+            <div class="permission-name">マイク</div>
+            <span class="permission-note">録音せず、音量の数値だけを端末内で見ます</span>
+          </div>
+          <button class="permission-action warn" id="perm-microphone" type="button" onclick="requestNativePermission('microphone')">確認</button>
+        </div>
+        <div class="permission-row">
+          <div>
+            <div class="permission-name">通知</div>
+            <span class="permission-note">検知中とアラーム中の表示に使います</span>
+          </div>
+          <button class="permission-action warn" id="perm-notifications" type="button" onclick="requestNativePermission('notifications')">確認</button>
+        </div>
+        <div class="permission-row">
+          <div>
+            <div class="permission-name">正確なアラーム</div>
+            <span class="permission-note">省電力中でも時間通りに鳴らすために使います</span>
+          </div>
+          <button class="permission-action warn" id="perm-exactAlarm" type="button" onclick="requestNativePermission('exactAlarm')">確認</button>
+        </div>
+        <div class="permission-row">
+          <div>
+            <div class="permission-name">全画面アラーム</div>
+            <span class="permission-note">画面オフやロック中のアラーム表示に使います</span>
+          </div>
+          <button class="permission-action warn" id="perm-fullScreenIntent" type="button" onclick="requestNativePermission('fullScreenIntent')">確認</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-title">検知感度</div>
       <div class="slider-row">
         <span style="font-size:12px;color:#7d8590">誤検知しにくい</span>
@@ -337,8 +431,14 @@
       <div class="current-tone"><span>現在:</span> <strong id="current-alarm-tone">端末のアラーム音</strong></div>
       <div class="action-row">
         <button class="small-btn" type="button" onclick="chooseSystemAlarmTone()">端末音を選ぶ</button>
-        <button class="small-btn" type="button" onclick="testAlarm()">音を試す</button>
+        <button class="small-btn" id="test-alarm-btn" type="button" onclick="toggleTestAlarm()">音を試す</button>
       </div>
+      <label class="option-row" style="margin-top:12px">
+        <input type="checkbox" id="alarm-challenge-check" onchange="saveAlarmChallenge()">
+        <span>止める前にかんたんな計算を出す
+          <span class="option-note">寝ぼけて即停止しないための小さな遊びです。いつでもOFFにできます。</span>
+        </span>
+      </label>
     </div>
     <div class="card">
       <div class="card-title">使い方</div>
@@ -351,6 +451,9 @@
     </div>
     <div class="info-box">
       ⚠️ 開始するとマイクと動きセンサーの許可が必要です。録音・保存・送信は行いません。
+    </div>
+    <div class="developer-signature">
+      個人開発です。録音しないで、ちゃんと起こすことだけ考えています。
     </div>
     <button class="cancel-btn" type="button" onclick="showPhase('phase-setup')">戻る</button>
   </div>
@@ -427,7 +530,7 @@
       </div>
       <div class="stat-card">
         <div class="stat-val" id="stat-detect">—</div>
-        <div class="stat-lbl">検知時間</div>
+        <div class="stat-lbl">眠るまで</div>
       </div>
     </div>
     <button class="cancel-btn" onclick="cancelAll()">✕ キャンセル・起床</button>
@@ -440,7 +543,16 @@
       <div class="alarm-title">起きる時間です！</div>
       <div class="alarm-sub" id="alarm-msg">よく眠れましたか？</div>
       <div class="alarm-sub" id="alarm-elapsed-msg" style="margin-top:8px">アラーム開始から 0分</div>
-      <div class="alarm-sub" id="alarm-detect-msg">寝るまで: —</div>
+      <div class="alarm-sub" id="alarm-detect-msg">眠るまで: —</div>
+      <div class="challenge-box" id="alarm-challenge-box">
+        <div class="challenge-question" id="alarm-challenge-question"></div>
+        <div class="challenge-note">答えるとアラームを止められます</div>
+        <div class="challenge-input-row">
+          <input class="challenge-input" id="alarm-challenge-answer" type="number" inputmode="numeric" autocomplete="off" onkeydown="if(event.key === 'Enter') submitAlarmChallenge()">
+          <button class="small-btn" type="button" onclick="submitAlarmChallenge()">OK</button>
+        </div>
+        <div class="challenge-feedback" id="alarm-challenge-feedback"></div>
+      </div>
       <button class="dismiss-btn" onclick="dismissAlarm()">止める</button>
     </div>
   </div>
@@ -463,8 +575,11 @@ let motionLevel = 0;
 let alarmIv = null;
 let alarmAudioCtx = null;
 let alarmTestTimeout = null;
+let alarmTestActive = false;
 let alarmTone = 'system';
 let systemAlarmToneTitle = '端末のアラーム音';
+let alarmChallengeEnabled = false;
+let alarmChallengeAnswer = null;
 let alarmLoopCount = 0;
 let durationDigits = '';
 let lastDurationMins = 30;
@@ -554,6 +669,14 @@ function updateDetectionMode() {
 
 function nativeAlarmBridge() {
   return window.SleepTimerAndroid && typeof window.SleepTimerAndroid.scheduleAlarm === 'function'
+    ? window.SleepTimerAndroid
+    : null;
+}
+
+function nativePermissionBridge() {
+  return window.SleepTimerAndroid
+    && typeof window.SleepTimerAndroid.getPermissionStatus === 'function'
+    && typeof window.SleepTimerAndroid.requestPermission === 'function'
     ? window.SleepTimerAndroid
     : null;
 }
@@ -760,7 +883,9 @@ function showPhase(id) {
 
 function showSettings() {
   const settings = document.getElementById('phase-settings');
-  showPhase(settings.classList.contains('active') ? 'phase-setup' : 'phase-settings');
+  const next = settings.classList.contains('active') ? 'phase-setup' : 'phase-settings';
+  showPhase(next);
+  if (next === 'phase-settings') refreshPermissionStatus();
 }
 
 function completeOnboarding() {
@@ -779,6 +904,35 @@ function initAlarmTone() {
   updateCurrentAlarmTone();
 }
 
+function initAlarmChallenge() {
+  alarmChallengeEnabled = localStorage.getItem('sleepTimerAlarmChallenge') === 'true';
+  const bridge = nativeAlarmBridge();
+  if (bridge && typeof bridge.isAlarmChallengeEnabled === 'function') {
+    try {
+      alarmChallengeEnabled = !!bridge.isAlarmChallengeEnabled();
+      localStorage.setItem('sleepTimerAlarmChallenge', String(alarmChallengeEnabled));
+    } catch(e) {}
+  }
+  const el = document.getElementById('alarm-challenge-check');
+  if (el) el.checked = alarmChallengeEnabled;
+  syncAlarmChallengeToNative();
+}
+
+function saveAlarmChallenge() {
+  const el = document.getElementById('alarm-challenge-check');
+  alarmChallengeEnabled = !!(el && el.checked);
+  localStorage.setItem('sleepTimerAlarmChallenge', String(alarmChallengeEnabled));
+  syncAlarmChallengeToNative();
+}
+
+function syncAlarmChallengeToNative() {
+  const bridge = nativeAlarmBridge();
+  if (!bridge || typeof bridge.setAlarmChallengeEnabled !== 'function') return;
+  try {
+    bridge.setAlarmChallengeEnabled(alarmChallengeEnabled);
+  } catch(e) {}
+}
+
 function updateCurrentAlarmTone() {
   const el = document.getElementById('current-alarm-tone');
   if (el) el.textContent = systemAlarmToneTitle || '端末のアラーム音';
@@ -793,6 +947,59 @@ function chooseSystemAlarmTone() {
   try {
     bridge.chooseSystemAlarmTone();
   } catch(e) {}
+}
+
+function refreshPermissionStatus() {
+  const bridge = nativePermissionBridge();
+  if (!bridge) {
+    updatePermissionStatus({
+      microphone: false,
+      notifications: false,
+      exactAlarm: false,
+      fullScreenIntent: false
+    }, true);
+    return;
+  }
+  try {
+    const status = bridge.getPermissionStatus();
+    updatePermissionStatus(typeof status === 'string' ? JSON.parse(status) : status, false);
+  } catch(e) {}
+}
+
+function requestNativePermission(key) {
+  const bridge = nativePermissionBridge();
+  if (!bridge) return;
+  try {
+    bridge.requestPermission(key);
+    setTimeout(refreshPermissionStatus, 800);
+  } catch(e) {}
+}
+
+window.onNativePermissionStatus = function(status) {
+  if (typeof status === 'string') {
+    try {
+      status = JSON.parse(status);
+    } catch(e) {
+      return;
+    }
+  }
+  updatePermissionStatus(status, false);
+};
+
+function updatePermissionStatus(status, unavailable) {
+  setPermissionButton('microphone', status && status.microphone, unavailable);
+  setPermissionButton('notifications', status && status.notifications, unavailable);
+  setPermissionButton('exactAlarm', status && status.exactAlarm, unavailable);
+  setPermissionButton('fullScreenIntent', status && status.fullScreenIntent, unavailable);
+}
+
+function setPermissionButton(key, granted, unavailable) {
+  const el = document.getElementById('perm-' + key);
+  if (!el) return;
+  el.classList.toggle('ok', !!granted);
+  el.classList.toggle('warn', !granted);
+  el.disabled = !!granted || !!unavailable;
+  el.textContent = unavailable ? 'Android版' : granted ? 'OK' : '設定';
 }
 
 window.onSystemAlarmToneSelected = function(title) {
@@ -1171,7 +1378,8 @@ function showNativeAlarmState() {
   const detectSecs = Math.round((sleepStart.getTime() - detectStart) / 1000);
   alarmStart = new Date();
   document.getElementById('alarm-msg').textContent = `${slept}分間眠りました。Androidのアラームが鳴っています。`;
-  document.getElementById('alarm-detect-msg').textContent = `寝るまで: ${formatElapsed(detectSecs)}`;
+  document.getElementById('alarm-detect-msg').textContent = `眠るまで: ${formatElapsed(detectSecs)}`;
+  prepareAlarmChallenge();
   updateAlarmElapsed();
   alarmElapsedIv = setInterval(updateAlarmElapsed, 1000);
   showPhase('phase-alarm');
@@ -1183,7 +1391,8 @@ function triggerAlarm() {
   const detectSecs = Math.round((sleepStart.getTime() - detectStart) / 1000);
   alarmStart = new Date();
   document.getElementById('alarm-msg').textContent = `${slept}分間眠りました。お疲れさまです！`;
-  document.getElementById('alarm-detect-msg').textContent = `寝るまで: ${formatElapsed(detectSecs)}`;
+  document.getElementById('alarm-detect-msg').textContent = `眠るまで: ${formatElapsed(detectSecs)}`;
+  prepareAlarmChallenge();
   updateAlarmElapsed();
   alarmElapsedIv = setInterval(updateAlarmElapsed, 1000);
 
@@ -1193,6 +1402,41 @@ function triggerAlarm() {
 
 
   showPhase('phase-alarm');
+}
+
+function prepareAlarmChallenge() {
+  const box = document.getElementById('alarm-challenge-box');
+  const question = document.getElementById('alarm-challenge-question');
+  const answer = document.getElementById('alarm-challenge-answer');
+  const feedback = document.getElementById('alarm-challenge-feedback');
+  if (!box || !question || !answer || !feedback) return;
+  if (!alarmChallengeEnabled) {
+    alarmChallengeAnswer = null;
+    box.style.display = 'none';
+    return;
+  }
+
+  const a = 4 + Math.floor(Math.random() * 16);
+  const b = 4 + Math.floor(Math.random() * 16);
+  alarmChallengeAnswer = a + b;
+  question.textContent = `${a} + ${b} = ?`;
+  answer.value = '';
+  feedback.textContent = '';
+  box.style.display = 'block';
+  setTimeout(() => answer.focus(), 300);
+}
+
+function submitAlarmChallenge() {
+  const answer = document.getElementById('alarm-challenge-answer');
+  const feedback = document.getElementById('alarm-challenge-feedback');
+  if (!answer || alarmChallengeAnswer === null) return;
+  if (Number(answer.value) === alarmChallengeAnswer) {
+    dismissAlarm(true);
+    return;
+  }
+  if (feedback) feedback.textContent = 'もう一度';
+  answer.value = '';
+  answer.focus();
 }
 
 function formatElapsed(totalSeconds) {
@@ -1248,9 +1492,25 @@ function getAlarmRepeatMs() {
   return 4500;
 }
 
+function toggleTestAlarm() {
+  if (alarmTestActive) {
+    stopAlarm();
+    return;
+  }
+  testAlarm();
+}
+
+function setAlarmTestActive(active) {
+  alarmTestActive = active;
+  const btn = document.getElementById('test-alarm-btn');
+  if (btn) btn.textContent = active ? '停止' : '音を試す';
+}
+
 function testAlarm() {
   stopAlarm();
+  setAlarmTestActive(true);
   if (testNativeAlarm()) {
+    alarmTestTimeout = setTimeout(stopAlarm, 5200);
     return;
   }
   alarmLoopCount = 0;
@@ -1258,7 +1518,16 @@ function testAlarm() {
   alarmTestTimeout = setTimeout(stopAlarm, Math.min(getAlarmRepeatMs(), 5200));
 }
 
-function dismissAlarm() {
+function dismissAlarm(challengeSolved = false) {
+  if (alarmChallengeEnabled && !challengeSolved) {
+    const box = document.getElementById('alarm-challenge-box');
+    if (box && box.style.display !== 'block') prepareAlarmChallenge();
+    const feedback = document.getElementById('alarm-challenge-feedback');
+    if (feedback) feedback.textContent = '計算に答えると止められます';
+    const answer = document.getElementById('alarm-challenge-answer');
+    if (answer) answer.focus();
+    return;
+  }
   cancelNativeAlarm();
   stopAlarm();
   cleanup();
@@ -1278,6 +1547,7 @@ function stopAlarm() {
     try { alarmAudioCtx.close(); } catch(e) {}
     alarmAudioCtx = null;
   }
+  setAlarmTestActive(false);
 }
 
 function stopDetectionSensors() {
@@ -1329,6 +1599,12 @@ function initDuration() {
 
 initDuration();
 initAlarmTone();
+initAlarmChallenge();
+refreshPermissionStatus();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshPermissionStatus();
+});
 
 function initOnboarding() {
   showPhase('phase-onboarding');
